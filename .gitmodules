@@ -1,0 +1,3 @@
+[submodule "sim/agile_flight"]
+	path = sim/agile_flight
+	url = https://github.com/uzh-rpg/agile_flight.git
