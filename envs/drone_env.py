@@ -5,12 +5,16 @@ from gym import spaces
 import numpy as np
 import rospy
 from geometry_msgs.msg import Twist
-from sensor_msgs.msg import Image, Imu  # TODO: Add IMU processing
+from sensor_msgs.msg import Image
 from nav_msgs.msg import Odometry
 from std_srvs.srv import Empty
+import imageio  # NEW: For saving rollouts
+
+from rl.utils import ros_img_to_numpy, compute_goal_reward, log_metrics
+
 
 class DroneSimEnv(gym.Env):
-    def __init__(self):
+    def __init__(self, render_eval=False):
         super().__init__()
 
         rospy.init_node('drone_rl_env', anonymous=True)
@@ -18,53 +22,46 @@ class DroneSimEnv(gym.Env):
         # Action: [vx, vz, yaw_rate]
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
 
-        # TODO: Add LIDAR or depth image if available
+        # Observation: image + scalar state
         self.observation_space = spaces.Dict({
             "image": spaces.Box(low=0, high=255, shape=(64, 64, 3), dtype=np.uint8),
-            "state": spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32)  # TODO: Expand with IMU/goal
+            "state": spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32)
         })
 
-        # Publishers and Subscribers
         self.cmd_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=1)
         rospy.Subscriber('/camera/image_raw', Image, self._image_callback)
         rospy.Subscriber('/odom', Odometry, self._odom_callback)
-
-        # TODO: Subscribe to IMU if needed
-        # rospy.Subscriber('/imu', Imu, self._imu_callback)
-
-        # Reset service
         rospy.wait_for_service('/reset_sim')
         self.reset_sim = rospy.ServiceProxy('/reset_sim', Empty)
 
         self.latest_image = np.zeros((64, 64, 3), dtype=np.uint8)
-        self.current_state = np.zeros(6)  # TODO: Consider [px, py, pz, vx, vy, vz, yaw, goal_dx, goal_dy, ...]
+        self.current_state = np.zeros(6)
+        # TODO: Add random goal position in reset() for generalization
+        self.goal_position = np.array([5.0, 0.0, 1.0])
+        self.current_step = 0
 
-        # TODO: Track goal position and calculate distance to goal
-        # self.goal_position = np.array([10.0, 0.0, 1.0])
+        # NEW: logging for GIFs
+        self.render_eval = render_eval
+        self.frame_log = []
 
     def _image_callback(self, msg):
-        # TODO: Use cv_bridge to convert ROS Image to NumPy array
-        self.latest_image = np.random.randint(0, 255, (64, 64, 3), dtype=np.uint8)
+        self.latest_image = ros_img_to_numpy(msg)
 
     def _odom_callback(self, msg):
         pos = msg.pose.pose.position
         vel = msg.twist.twist.linear
-        # TODO: Add orientation (e.g., yaw)
         self.current_state = np.array([pos.x, pos.y, pos.z, vel.x, vel.y, vel.z])
-
-    # def _imu_callback(self, msg):
-    #     # TODO: Extract orientation, acceleration, angular velocity if needed
-    #     pass
 
     def reset(self):
         self.reset_sim()
         rospy.sleep(0.5)
+        self.current_step = 0
+        self.frame_log = []  # Clear previous frames
 
-        obs = {
+        return {
             "image": self.latest_image,
-            "state": self.current_state  # TODO: Add goal-relative vector if available
+            "state": self.current_state
         }
-        return obs
 
     def step(self, action):
         cmd = Twist()
@@ -74,14 +71,20 @@ class DroneSimEnv(gym.Env):
         self.cmd_pub.publish(cmd)
 
         rospy.sleep(0.1)
+        self.current_step += 1
+
+        if self.render_eval:
+            self.frame_log.append(self.latest_image.copy())
 
         obs = {
             "image": self.latest_image,
             "state": self.current_state
         }
 
-        reward = -1.0  # TODO: Define meaningful reward (e.g., -distance, +goal, -collision)
-        done = False   # TODO: Define termination (goal reached, crash, timeout)
+        reward, reached_goal = compute_goal_reward(self.current_state[:3], self.goal_position)
+        done = reached_goal or self.current_step > 200
+
+        log_metrics(self.current_step, reward, self.current_state[:3], self.goal_position, done)
 
         return obs, reward, done, {}
 
@@ -90,3 +93,8 @@ class DroneSimEnv(gym.Env):
 
     def close(self):
         pass
+
+    # NEW: Utility function to save a GIF from the recorded frames
+    def save_episode_gif(self, filename='rollout.gif', fps=10):
+        if self.frame_log:
+            imageio.mimsave(filename, self.frame_log, fps=fps)

@@ -30,6 +30,7 @@ def compute_distance(a, b):
     """Euclidean distance between two 3D vectors"""
     return np.linalg.norm(np.array(a) - np.array(b))
 
+# TODO: Customize reward function
 def compute_goal_reward(position, goal, threshold=0.5):
     """Simple reward: +100 if within threshold of goal, -distance otherwise"""
     dist = compute_distance(position, goal)
