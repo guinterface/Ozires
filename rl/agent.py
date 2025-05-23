@@ -1,7 +1,7 @@
 # rl/agent.py
 
 import torch
-from rl.actor import Actor
+from rl.actor import DroneActor as Actor
 from rl.critic import Critic  # You'll need to implement this too
 
 
