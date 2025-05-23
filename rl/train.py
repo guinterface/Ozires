@@ -53,6 +53,7 @@ def train(agent, env, buffer, num_episodes, writer, device='cpu'):
         # Track metrics
         episode_rewards.append(ep_reward)
         step_counts.append(env.current_step)
+        
         if env.current_step < 200:
             success_count += 1
 
@@ -125,7 +126,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     image_shape = (3, 64, 64)
-    state_dim = 6
+    state_dim = 12
     action_dim = 3
 
     agent = PPOAgent(image_shape, state_dim, action_dim, device=args.device)

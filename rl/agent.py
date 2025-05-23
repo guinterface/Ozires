@@ -4,6 +4,7 @@ import torch
 from rl.actor import Actor
 from rl.critic import Critic  # You'll need to implement this too
 
+
 class PPOAgent:
     def __init__(self, image_shape, state_dim, action_dim, device='cpu'):
         """

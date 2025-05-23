@@ -1,66 +1,60 @@
-# rl/actor.py
-
 import torch
 import torch.nn as nn
 from torch.distributions import Normal
+from torchvision.models import resnet50
 
-class Actor(nn.Module):
-    def __init__(self, image_shape, state_dim, action_dim):
+class DroneActor(nn.Module):
+    def __init__(self, image_shape, state_dim, action_dim, use_pretrained=True, freeze_backbone=False):
         """
-        Actor network for PPO with image + state input and continuous action output.
-
+        Flexible Actor for drone self-driving using PPO.
+        
         Args:
-            image_shape (tuple): Shape of the input image (C, H, W)
-            state_dim (int): Dimensionality of scalar input (e.g., goal vector, velocity)
-            action_dim (int): Number of continuous actions (e.g., [vx, vz, yaw_rate])
+            image_shape (tuple): (C, H, W) input image shape, usually RGB (3, 224, 224)
+            state_dim (int): Dimensionality of additional state info (velocity, IMU, GPS, etc.)
+            action_dim (int): Number of continuous actions (e.g., [vx, vy, vz, yaw_rate])
+            use_pretrained (bool): Whether to load pretrained ResNet weights
+            freeze_backbone (bool): Whether to freeze ResNet layers
         """
         super().__init__()
-
         c, h, w = image_shape
+        assert c == 3, "Currently expects RGB images; extend here for RGB-D."
 
-        # TODO: Customize CNN architecture if higher image quality or depth input is used
-        self.cnn = nn.Sequential(
-            nn.Conv2d(c, 16, kernel_size=5, stride=2),
-            nn.ReLU(),
-            nn.Conv2d(16, 32, kernel_size=3, stride=2),
-            nn.ReLU(),
-            nn.Flatten()
-        )
+        # CNN Backbone (ResNet-50)
+        backbone = resnet50(pretrained=use_pretrained)
+        self.cnn = nn.Sequential(*list(backbone.children())[:-1])  # [B, 2048, 1, 1]
+        self.cnn_output_dim = 2048
 
-        # Determine CNN output size
-        with torch.no_grad():
-            dummy = torch.zeros(1, *image_shape)
-            cnn_output_dim = self.cnn(dummy).shape[1]
+        if freeze_backbone:
+            for param in self.cnn.parameters():
+                param.requires_grad = False
 
-        # TODO: Modify MLP depth, width, or activation if needed
-        self.mlp = nn.Sequential(
-            nn.Linear(cnn_output_dim + state_dim, 64),
+        # Fusion MLP for image features + state
+        self.fusion_mlp = nn.Sequential(
+            nn.Linear(self.cnn_output_dim + state_dim, 256),
             nn.ReLU(),
-            nn.Linear(64, 64),
+            nn.Linear(256, 128),
             nn.ReLU()
         )
 
-        # Action output (mean of Gaussian) + log_std (shared)
-        self.mean_head = nn.Linear(64, action_dim)
-        self.log_std = nn.Parameter(torch.zeros(action_dim))  # TODO: Make trainable per-dim if needed
+        # Action head
+        self.mean_head = nn.Linear(128, action_dim)
+        self.log_std = nn.Parameter(torch.zeros(action_dim))  # Learned, shared log_std
 
     def forward(self, image, state_vec):
         """
-        Forward pass through the actor network.
+        Forward pass for action distribution.
 
         Args:
-            image (Tensor): Tensor of shape [B, C, H, W]
-            state_vec (Tensor): Tensor of shape [B, state_dim]
+            image (Tensor): [B, 3, H, W] RGB input
+            state_vec (Tensor): [B, state_dim] auxiliary drone state input
 
         Returns:
-            dist (Normal): PyTorch Normal distribution over actions
+            dist (Normal): Gaussian distribution over actions
         """
-        x1 = self.cnn(image)                    # image → CNN → features
-        x2 = state_vec                          # state vector input
-        x = torch.cat([x1, x2], dim=1)          # concatenate features
-        x = self.mlp(x)                         # MLP for fusion
-        mean = self.mean_head(x)                # Action mean
-        std = self.log_std.exp()                # Fixed std
-
-        # TODO: Consider clamping or bounding std if too unstable
+        img_feat = self.cnn(image)                  # [B, 2048, 1, 1]
+        img_feat = img_feat.view(img_feat.size(0), -1)  # Flatten to [B, 2048]
+        fused = torch.cat([img_feat, state_vec], dim=1)
+        fused_feat = self.fusion_mlp(fused)
+        mean = self.mean_head(fused_feat)
+        std = self.log_std.exp()
         return Normal(mean, std)
