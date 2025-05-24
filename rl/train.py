@@ -125,7 +125,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
 
-    image_shape = (3, 64, 64)
+    image_shape = (3, 224, 224)
     state_dim = 12
     action_dim = 3
 

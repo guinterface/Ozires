@@ -21,7 +21,7 @@ class DroneSimEnv(gym.Env):
 
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
         self.observation_space = spaces.Dict({
-            "image": spaces.Box(low=0, high=255, shape=(64, 64, 3), dtype=np.uint8),
+            "image": spaces.Box(low=0, high=255, shape=(224, 224, 3), dtype=np.uint8),
             "state": spaces.Box(low=-np.inf, high=np.inf, shape=(12,), dtype=np.float32)
         })
 

@@ -3,15 +3,17 @@
 import numpy as np
 import math
 import cv2
-from cv_bridge import CvBridge
 
+from cv_bridge import CvBridge
 bridge = CvBridge()
+
+
 
 # =========================
 # IMAGE UTILITIES
 # =========================
 
-def ros_img_to_numpy(msg, resize_shape=(64, 64)):
+def ros_img_to_numpy(msg, resize_shape=(224, 224)):
     """Convert ROS Image message to a resized NumPy RGB image"""
     try:
         img = bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
