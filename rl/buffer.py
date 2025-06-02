@@ -1,5 +1,3 @@
-# rl/buffer.py
-
 import numpy as np
 
 class RolloutBuffer:
@@ -15,9 +13,9 @@ class RolloutBuffer:
         self.returns = np.zeros(size, dtype=np.float32)
         self.ptr = 0
 
-    def add(self, obs, action, reward, done, value, log_prob):
-        self.images[self.ptr] = obs["image"]
-        self.states[self.ptr] = obs["state"]
+    def add(self, image, state, action, reward, done, value, log_prob):
+        self.images[self.ptr] = (image * 255).astype(np.uint8)  # Ensure it's uint8 (for storage)
+        self.states[self.ptr] = state
         self.actions[self.ptr] = action
         self.rewards[self.ptr] = reward
         self.dones[self.ptr] = done

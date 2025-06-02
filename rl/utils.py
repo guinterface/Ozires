@@ -3,6 +3,8 @@
 import numpy as np
 import math
 import cv2
+import torch
+
 
 from cv_bridge import CvBridge
 bridge = CvBridge()
@@ -56,11 +58,12 @@ def log_metrics(step, reward, position, goal, success):
     print(f"[Step {step}] Reward: {reward:.2f}, Pos: {position}, Goal: {goal}, Success: {success}")
 
 def buffer_to_tensors(buffer, device):
-    images = torch.tensor(buffer.images / 255.0, dtype=torch.float32).permute(0, 3, 1, 2).to(device)
+    images = torch.tensor(buffer.images / 255.0, dtype=torch.float32).to(device)  # (B, C, H, W) — no permute
     states = torch.tensor(buffer.states, dtype=torch.float32).to(device)
     actions = torch.tensor(buffer.actions, dtype=torch.float32).to(device)
     log_probs = torch.tensor(buffer.log_probs, dtype=torch.float32).to(device)
     returns = torch.tensor(buffer.returns, dtype=torch.float32).to(device)
     advantages = torch.tensor(buffer.advantages, dtype=torch.float32).to(device)
     return images, states, actions, log_probs, returns, advantages
+
 

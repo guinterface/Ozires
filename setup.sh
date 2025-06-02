@@ -1,25 +1,54 @@
 #!/bin/bash
+
+# === Ozires Drone RL Setup Script ===
+
+# --- Configurable Paths ---
+export ROS_DISTRO=noetic
+export ROS_WORKSPACE=~/agile_ws
+export FLIGHTMARE_PATH=$ROS_WORKSPACE/src/agile_flight/flightmare
+export PYTHON_ENV_PATH=$(pwd)/flightmare-venv
+
+# --- Exit on error ---
 set -e
 
-echo ">>> Setting up Python environment..."
-python3 -m venv venv
-source venv/bin/activate
+# --- ROS Setup ---
+echo "[INFO] Setting up ROS environment..."
+source /opt/ros/$ROS_DISTRO/setup.bash
+
+# --- Create ROS workspace if not exists ---
+if [ ! -d "$ROS_WORKSPACE/src" ]; then
+  mkdir -p $ROS_WORKSPACE/src
+fi
+
+# --- Clone Flightmare if missing ---
+if [ ! -d "$FLIGHTMARE_PATH" ]; then
+  echo "[INFO] Cloning Flightmare..."
+  cd $ROS_WORKSPACE/src
+  git clone https://github.com/uzh-rpg/flightmare.git agile_flight
+fi
+
+# --- Build ROS workspace ---
+cd $ROS_WORKSPACE
+catkin_make
+source devel/setup.bash
+echo "source $ROS_WORKSPACE/devel/setup.bash" >> ~/.bashrc
+
+# --- Python virtual environment ---
+echo "[INFO] Creating Python virtualenv at $PYTHON_ENV_PATH..."
+cd "$(dirname $PYTHON_ENV_PATH)"
+python3 -m venv $(basename $PYTHON_ENV_PATH)
+source $PYTHON_ENV_PATH/bin/activate
 pip install --upgrade pip
 
-echo ">>> Installing Python dependencies..."
-pip install torch==2.4.0 torchvision gym==0.26.2 numpy opencv-python imageio tensorboard rospkg catkin_pkg PyYAML tqdm matplotlib
+# --- Python dependencies ---
+echo "[INFO] Installing Python dependencies..."
+pip install -r $(pwd)/requirements.txt
 
-echo ">>> Setting up ROS (Ubuntu only)..."
-sudo apt update
-sudo apt install -y ros-noetic-desktop-full python3-catkin-tools python3-opencv ros-noetic-cv-bridge
-sudo rosdep init || true
-rosdep update
+# --- Add project to PYTHONPATH ---
+export PYTHONPATH=$PYTHONPATH:$(pwd)
+echo "export PYTHONPATH=\$PYTHONPATH:$(pwd)" >> ~/.bashrc
 
-echo ">>> Creating catkin workspace..."
-mkdir -p ~/catkin_ws/src
-cd ~/catkin_ws
-catkin build
-echo "source ~/catkin_ws/devel/setup.bash" >> ~/.bashrc
-source devel/setup.bash
-
-echo ">>> Setup complete! ✅"
+# --- Done ---
+echo "[✅ SETUP COMPLETE]"
+echo "[INFO] Run the following to start training:]"
+echo "  source setup.sh && python train.py --episodes 10 --device cpu"

@@ -1,9 +1,10 @@
-# train.py
-
 import os
 import torch
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
+import torchvision.transforms as T
+import torchvision.transforms.functional as TF
+from PIL import Image
 
 from rl.agent import PPOAgent
 from rl.buffer import RolloutBuffer
@@ -29,12 +30,28 @@ def train(agent, env, buffer, num_episodes, writer, device='cpu'):
         ep_reward = 0
 
         while not done:
-            # Process observation
-            image_np = obs["image"] / 255.0
-            state_np = obs["state"]
+            # === Preprocess image ===
+            image_np = obs["image"] / 255.0  # normalize
+            print(f"[DEBUG] Raw image shape from env: {image_np.shape}")  # (H, W, C)
 
-            image_tensor = torch.tensor(image_np, dtype=torch.float32).permute(2, 0, 1).unsqueeze(0).to(device)
+            # Resize and convert to tensor
+            image_resized = TF.resize(Image.fromarray((image_np * 255).astype(np.uint8)), size=(64, 64))
+            image_tensor = T.ToTensor()(image_resized).unsqueeze(0).to(device)
+
+            state_np = obs["state"]
             state_tensor = torch.tensor(state_np, dtype=torch.float32).unsqueeze(0).to(device)
+
+            # === Save one debug image ===
+            if not hasattr(train, "_image_saved"):
+                print(f"[DEBUG] image_tensor shape: {image_tensor.shape}")  # [1, C, H, W]
+                sample_image = image_tensor[0].cpu()  # [C, H, W]
+                to_pil = T.ToPILImage()
+                pil_img = to_pil(sample_image)
+                os.makedirs("debug_images", exist_ok=True)
+                pil_img.save("debug_images/sample_input_image.png")
+                print("[DEBUG] Saved sample image to debug_images/sample_input_image.png")
+                train._image_saved = True
+            # === End debug ===
 
             # Select action
             dist = agent.actor(image_tensor, state_tensor)
@@ -46,7 +63,16 @@ def train(agent, env, buffer, num_episodes, writer, device='cpu'):
             action_np = action.squeeze(0).cpu().numpy()
             next_obs, reward, done, info = env.step(action_np)
 
-            buffer.add(obs, action_np, reward, done, value.item(), log_prob.item())
+            buffer.add(
+                image_tensor.squeeze(0).cpu().numpy(),  # (C, H, W)
+                state_tensor.squeeze(0).cpu().numpy(),  # (state_dim,)
+                action_np,
+                reward,
+                done,
+                value.item(),
+                log_prob.item()
+            )
+
             obs = next_obs
             ep_reward += reward
 
@@ -58,7 +84,9 @@ def train(agent, env, buffer, num_episodes, writer, device='cpu'):
             success_count += 1
 
         # Bootstrap value for final state
-        last_image = torch.tensor(obs["image"] / 255.0, dtype=torch.float32).permute(2, 0, 1).unsqueeze(0).to(device)
+        last_image_np = obs["image"] / 255.0
+        last_image_resized = TF.resize(Image.fromarray((last_image_np * 255).astype(np.uint8)), size=(64, 64))
+        last_image = T.ToTensor()(last_image_resized).unsqueeze(0).to(device)
         last_state = torch.tensor(obs["state"], dtype=torch.float32).unsqueeze(0).to(device)
         last_value = agent.critic(last_image, last_state).item()
         buffer.compute_advantages(last_value)
@@ -125,16 +153,22 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
 
-    image_shape = (3, 64, 64)
-    state_dim = 12
+    # === Dynamically infer image shape and state_dim ===
+    env = DroneSimEnv(render_eval=True)
+    sample_obs = env.reset()
+    image_np = sample_obs["image"] / 255.0
+    image_resized = TF.resize(Image.fromarray((image_np * 255).astype(np.uint8)), size=(64, 64))
+    image_tensor = T.ToTensor()(image_resized)
+    image_shape = tuple(image_tensor.shape)  # (C, H, W)
+    state_dim = len(sample_obs["state"])
     action_dim = 3
+    # === ===
 
     agent = PPOAgent(image_shape, state_dim, action_dim, device=args.device)
     agent.actor_optimizer = torch.optim.Adam(agent.actor.parameters(), lr=3e-4)
     agent.critic_optimizer = torch.optim.Adam(agent.critic.parameters(), lr=1e-3)
 
     buffer = RolloutBuffer(size=2048, image_shape=image_shape, state_dim=state_dim, action_dim=action_dim)
-    env = DroneSimEnv(render_eval=True)
     writer = SummaryWriter(log_dir="runs/ppo_run")
 
     train(agent, env, buffer, num_episodes=args.episodes, writer=writer, device=args.device)

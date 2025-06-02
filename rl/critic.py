@@ -16,7 +16,6 @@ class Critic(nn.Module):
 
         c, h, w = image_shape
 
-        # TODO: Customize CNN depth and filters
         self.cnn = nn.Sequential(
             nn.Conv2d(c, 16, kernel_size=5, stride=2),
             nn.ReLU(),
@@ -25,12 +24,12 @@ class Critic(nn.Module):
             nn.Flatten()
         )
 
-        # Calculate CNN output size
+        # Dynamically compute output size of CNN
         with torch.no_grad():
             dummy = torch.zeros(1, *image_shape)
             cnn_out_dim = self.cnn(dummy).shape[1]
+            print(f"[Critic] CNN output dim: {cnn_out_dim} (from input shape {image_shape})")
 
-        # TODO: Customize MLP size
         self.mlp = nn.Sequential(
             nn.Linear(cnn_out_dim + state_dim, 64),
             nn.ReLU(),
